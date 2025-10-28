@@ -1,0 +1,54 @@
+# === t_target 통일 유틸 ===
+import numpy as np
+
+def _lowest_peak_freq_continuous(f, Z):
+    """-Im{Z}(vs log f)의 연속 최대 주파수들 중 최저값(Hz) 반환. 없으면 None."""
+    f = np.asarray(f, float)
+    Z = np.asarray(Z, complex)
+    if f.size < 3:
+        return None
+    order = np.argsort(f)
+    f = f[order]
+    x = np.log(f)
+    y = -Z[order].imag
+    d = np.gradient(y, x)
+    cand = np.where((d[:-1] > 0) & (d[1:] < 0))[0] + 1
+    if cand.size == 0:
+        return None
+
+    peaks = []
+    for c in cand:
+        i0, i1, i2 = max(c-1, 0), c, min(c+1, len(x)-1)
+        idx = np.unique([i0, i1, i2])
+        if idx.size < 3:
+            j = np.argmax(y[max(c-1, 0):min(c+2, len(y))]) + max(c-1, 0)
+            peaks.append(float(f[j]))
+            continue
+        xt, yt = x[idx], y[idx]
+        a, b, c0 = np.polyfit(xt, yt, 2)
+        if not np.isfinite(a) or a >= 0:
+            # 퇴화/볼록 → 이산 최대 폴백
+            j = np.argmax(yt)
+            fpk = float(np.exp(xt[j]))
+        else:
+            xpk = -b/(2*a)
+            if (xpk < xt.min()) or (xpk > xt.max()) or (not np.isfinite(xpk)):
+                j = np.argmax(yt)
+                fpk = float(np.exp(xt[j]))
+            else:
+                fpk = float(np.exp(xpk))
+        peaks.append(fpk)
+    return float(np.min(peaks)) if peaks else None
+
+def compute_t_target(frequencies, Z_mod, default=0.02):
+    """
+    수정(modified) 회로의 Z_mod와 주파수 배열로부터
+    t_target = 1/(2π f_lowest_peak) 계산. 실패 시 default 반환.
+    반환: (t_target, lowest_freq_mod or None)
+    """
+    f0 = _lowest_peak_freq_continuous(frequencies, Z_mod)
+    if (f0 is not None) and np.isfinite(f0) and (f0 > 0):
+        return 1.0/(2*np.pi*f0), f0
+    return float(default), None
+
+F_PEAK = np.logspace(-2, 2, 10000)
